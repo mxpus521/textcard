@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextCard - 长文转长图</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'display': ['Space Grotesk', 'sans-serif'],
+                        'serif-cn': ['Noto Serif SC', 'serif'],
+                    },
+                    colors: {
+                        'void': '#0a0a0f',
+                        'surface': '#12121a',
+                        'elevated': '#1a1a25',
+                        'accent': '#00ff88',
+                        'accent-dim': '#00cc6a',
+                        'muted': '#6b7280',
+                        'border': '#2a2a3a',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Space Grotesk', sans-serif; }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #12121a; }
+        ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a3a4a; }
+        
+        /* Noise texture overlay */
+        .noise-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+        
+        /* Glow effects */
+        .glow-accent { box-shadow: 0 0 40px rgba(0, 255, 136, 0.15); }
+        .glow-text { text-shadow: 0 0 30px rgba(0, 255, 136, 0.3); }
+        
+        /* Card preview themes */
+        .theme-minimal {
+            --bg: #ffffff;
+            --text: #1a1a1a;
+            --accent: #000000;
+            --secondary: #666666;
+        }
+        .theme-dark {
+            --bg: #0a0a0f;
+            --text: #f0f0f0;
+            --accent: #00ff88;
+            --secondary: #888888;
+        }
+        .theme-warm {
+            --bg: #faf7f2;
+            --text: #2d2a26;
+            --accent: #c45d3a;
+            --secondary: #8a8580;
+        }
+        .theme-ocean {
+            --bg: #0d1b2a;
+            --text: #e0e6ed;
+            --accent: #00b4d8;
+            --secondary: #6b8cae;
+        }
+        .theme-sunset {
+            --bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            --text: #ffffff;
+            --accent: #e94560;
+            --secondary: #a0a0b0;
+        }
+        .theme-forest {
+            --bg: #0d1117;
+            --text: #c9d1d9;
+            --accent: #58a65c;
+            --secondary: #7d8590;
+        }
+        .theme-lavender {
+            --bg: #1a1625;
+            --text: #e8e4f0;
+            --accent: #a78bfa;
+            --secondary: #9ca3af;
+        }
+        .theme-newspaper {
+            --bg: #f5f5f0;
+            --text: #1a1a1a;
+            --accent: #c41e3a;
+            --secondary: #666666;
+        }
+        
+        /* Animation */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
+            50% { box-shadow: 0 0 40px rgba(0, 255, 136, 0.4); }
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.6s ease-out forwards;
+        }
+        .animate-pulse-glow {
+            animation: pulse-glow 2s ease-in-out infinite;
+        }
+        
+        /* Button hover effect */
+        .btn-primary {
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s;
+        }
+        .btn-primary:hover::before {
+            transform: translateX(100%);
+        }
+        
+        /* Theme selector */
+        .theme-btn {
+            transition: all 0.3s ease;
+        }
+        .theme-btn.active {
+            border-color: #00ff88 !important;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+        .theme-btn.active::after {
+            content: '✓';
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 18px;
+            height: 18px;
+            background: #00ff88;
+            color: #0a0a0f;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            z-index: 10;
+        }
+        
+        /* Preview card styles */
+        .preview-card {
+            font-family: 'Noto Serif SC', serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .preview-card .accent-color { color: var(--accent); }
+        .preview-card .secondary-color { color: var(--secondary); }
+        
+        /* Textarea custom */
+        textarea:focus {
+            outline: none;
+        }
+        
+        /* Stagger animation */
+        .stagger-1 { animation-delay: 0.1s; }
+        .stagger-2 { animation-delay: 0.2s; }
+        .stagger-3 { animation-delay: 0.3s; }
+        .stagger-4 { animation-delay: 0.4s; }
+    </style>
+</head>
+<body class="bg-void text-white min-h-screen">
+    <div class="noise-overlay"></div>
+    
+    <!-- Header -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-void/80 backdrop-blur-xl border-b border-border">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-accent to-accent-dim flex items-center justify-center">
+                    <svg class="w-6 h-6 text-void" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-display font-bold text-xl tracking-tight">TextCard</h1>
+                    <p class="text-xs text-muted -mt-0.5">长文转长图</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-muted hidden sm:block">一键生成精美长图</span>
+                <a href="https://x.com" target="_blank" class="text-muted hover:text-accent transition-colors">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6">
+        <div class="max-w-7xl mx-auto">
+            <!-- Hero Section -->
+            <section class="text-center mb-12 opacity-0 animate-fade-in-up">
+                <h2 class="font-display text-4xl sm:text-5xl lg:text-6xl font-bold mb-4 tracking-tight">
+                    <span class="text-white">将你的</span>
+                    <span class="text-accent glow-text">长文</span>
+                    <span class="text-white">变成</span>
+                    <span class="text-accent glow-text">精美长图</span>
+                </h2>
+                <p class="text-muted text-lg max-w-2xl mx-auto">
+                    突破社交媒体字数限制，让你的内容以更优雅的方式传播
+                </p>
+            </section>
+
+            <!-- Editor Grid -->
+            <div class="grid lg:grid-cols-2 gap-8">
+                <!-- Left: Editor Panel -->
+                <div class="space-y-6 opacity-0 animate-fade-in-up stagger-1">
+                    <!-- Text Input -->
+                    <div class="bg-surface rounded-2xl border border-border p-6 glow-accent">
+                        <div class="flex items-center justify-between mb-4">
+                            <label class="font-display font-semibold text-lg">输入文本</label>
+                            <span id="charCount" class="text-sm text-muted">0 字</span>
+                        </div>
+                        <textarea 
+                            id="textInput"
+                            class="w-full h-64 bg-elevated rounded-xl border border-border p-4 text-white placeholder-muted resize-none focus:border-accent transition-colors"
+                            placeholder="在这里粘贴或输入你的长文内容...
+
+支持多段落，每段会自动排版。
+
+试试看吧！"
+                        ></textarea>
+                    </div>
+
+                    <!-- Author & Title -->
+                    <div class="bg-surface rounded-2xl border border-border p-6">
+                        <div class="grid sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-muted mb-2">标题（可选）</label>
+                                <input 
+                                    type="text" 
+                                    id="titleInput"
+                                    class="w-full bg-elevated rounded-lg border border-border px-4 py-3 text-white placeholder-muted focus:border-accent transition-colors"
+                                    placeholder="文章标题"
+                                >
+                            </div>
+                            <div>
+                                <label class="block text-sm text-muted mb-2">作者/来源（可选）</label>
+                                <input 
+                                    type="text" 
+                                    id="authorInput"
+                                    class="w-full bg-elevated rounded-lg border border-border px-4 py-3 text-white placeholder-muted focus:border-accent transition-colors"
+                                    placeholder="@username"
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Theme Selection -->
+                    <div class="bg-surface rounded-2xl border border-border p-6">
+                        <label class="block font-display font-semibold text-lg mb-4">选择主题</label>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="themeSelector">
+                            <button class="theme-btn active group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="minimal">
+                                <div class="aspect-[4/3] bg-white relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-black"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-gray-100 flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-600 font-medium">极简白</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="dark">
+                                <div class="aspect-[4/3] bg-[#0a0a0f] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#00ff88]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#15151f] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-400 font-medium">暗夜绿</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="warm">
+                                <div class="aspect-[4/3] bg-[#faf7f2] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#c45d3a]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#f0ebe3] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-600 font-medium">暖阳</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="ocean">
+                                <div class="aspect-[4/3] bg-[#0d1b2a] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#00b4d8]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#162938] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-400 font-medium">深海</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="sunset">
+                                <div class="aspect-[4/3] bg-gradient-to-br from-[#1a1a2e] via-[#16213e] to-[#0f3460] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#e94560]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#1a1a2e]/80 flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-400 font-medium">日落</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="forest">
+                                <div class="aspect-[4/3] bg-[#0d1117] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#58a65c]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#161b22] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-400 font-medium">森林</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="lavender">
+                                <div class="aspect-[4/3] bg-[#1a1625] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#a78bfa]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#241f31] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-400 font-medium">薰衣草</span>
+                                    </div>
+                                </div>
+                            </button>
+                            <button class="theme-btn group relative overflow-hidden rounded-xl border-2 border-transparent hover:border-accent/50 transition-all duration-300" data-theme="newspaper">
+                                <div class="aspect-[4/3] bg-[#f5f5f0] relative">
+                                    <div class="absolute top-2 left-2 w-3 h-3 rounded-full bg-[#c41e3a]"></div>
+                                    <div class="absolute bottom-0 inset-x-0 h-6 bg-[#e8e8e0] flex items-center justify-center">
+                                        <span class="text-[10px] text-gray-600 font-medium">报纸</span>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Font Size -->
+                    <div class="bg-surface rounded-2xl border border-border p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <label class="font-display font-semibold">字体大小</label>
+                            <span id="fontSizeValue" class="text-accent font-mono">18px</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            id="fontSizeSlider"
+                            min="14" 
+                            max="28" 
+                            value="18"
+                            class="w-full h-2 bg-elevated rounded-lg appearance-none cursor-pointer accent-accent"
+                        >
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button 
+                        id="generateBtn"
+                        class="btn-primary w-full bg-accent hover:bg-accent-dim text-void font-display font-bold text-lg py-4 rounded-xl transition-all duration-300 animate-pulse-glow flex items-center justify-center gap-3"
+                    >
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        生成长图
+                    </button>
+                </div>
+
+                <!-- Right: Preview Panel -->
+                <div class="opacity-0 animate-fade-in-up stagger-2">
+                    <div class="sticky top-28">
+                        <div class="flex items-center justify-between mb-4">
+                            <label class="font-display font-semibold text-lg">实时预览</label>
+                            <span class="text-sm text-muted">宽度 680px</span>
+                        </div>
+                        <div class="bg-surface rounded-2xl border border-border p-6 overflow-auto max-h-[calc(100vh-200px)]">
+                            <div class="flex justify-center">
+                                <div id="previewContainer" class="w-[680px] max-w-full">
+                                    <!-- Preview card will be rendered here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-border py-8 px-6">
+        <div class="max-w-7xl mx-auto text-center text-muted text-sm">
+            <p>Made with <span class="text-accent">♥</span> for content creators</p>
+        </div>
+    </footer>
+
+    <script>
+        // State
+        let currentTheme = 'minimal';
+        let fontSize = 18;
+        
+        // Elements
+        const textInput = document.getElementById('textInput');
+        const titleInput = document.getElementById('titleInput');
+        const authorInput = document.getElementById('authorInput');
+        const charCount = document.getElementById('charCount');
+        const fontSizeSlider = document.getElementById('fontSizeSlider');
+        const fontSizeValue = document.getElementById('fontSizeValue');
+        const themeSelector = document.getElementById('themeSelector');
+        const previewContainer = document.getElementById('previewContainer');
+        const generateBtn = document.getElementById('generateBtn');
+
+        // Theme configurations
+        const themes = {
+            minimal: {
+                name: '极简白',
+                bg: '#ffffff',
+                text: '#1a1a1a',
+                accent: '#000000',
+                secondary: '#666666',
+                cardBg: '#ffffff',
+                padding: '48px'
+            },
+            dark: {
+                name: '暗夜绿',
+                bg: '#0a0a0f',
+                text: '#f0f0f0',
+                accent: '#00ff88',
+                secondary: '#888888',
+                cardBg: '#0a0a0f',
+                padding: '48px'
+            },
+            warm: {
+                name: '暖阳',
+                bg: '#faf7f2',
+                text: '#2d2a26',
+                accent: '#c45d3a',
+                secondary: '#8a8580',
+                cardBg: '#faf7f2',
+                padding: '48px'
+            },
+            ocean: {
+                name: '深海',
+                bg: '#0d1b2a',
+                text: '#e0e6ed',
+                accent: '#00b4d8',
+                secondary: '#6b8cae',
+                cardBg: '#0d1b2a',
+                padding: '48px'
+            },
+            sunset: {
+                name: '日落',
+                bg: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
+                text: '#ffffff',
+                accent: '#e94560',
+                secondary: '#a0a0b0',
+                cardBg: '#1a1a2e',
+                padding: '48px'
+            },
+            forest: {
+                name: '森林',
+                bg: '#0d1117',
+                text: '#c9d1d9',
+                accent: '#58a65c',
+                secondary: '#7d8590',
+                cardBg: '#0d1117',
+                padding: '48px'
+            },
+            lavender: {
+                name: '薰衣草',
+                bg: '#1a1625',
+                text: '#e8e4f0',
+                accent: '#a78bfa',
+                secondary: '#9ca3af',
+                cardBg: '#1a1625',
+                padding: '48px'
+            },
+            newspaper: {
+                name: '报纸',
+                bg: '#f5f5f0',
+                text: '#1a1a1a',
+                accent: '#c41e3a',
+                secondary: '#666666',
+                cardBg: '#f5f5f0',
+                padding: '48px'
+            }
+        };
+
+        // Render preview
+        function renderPreview() {
+            const text = textInput.value || '在这里输入你的长文内容...';
+            const title = titleInput.value;
+            const author = authorInput.value;
+            const theme = themes[currentTheme];
+            
+            const paragraphs = text.split('\n').filter(p => p.trim()).map(p => 
+                `<p style="margin-bottom: 1.5em; line-height: 1.8; text-align: justify;">${escapeHtml(p)}</p>`
+            ).join('');
+            
+            const bgStyle = theme.bg.includes('gradient') 
+                ? `background: ${theme.bg};` 
+                : `background-color: ${theme.bg};`;
+            
+            const html = `
+                <div id="captureCard" style="
+                    width: 680px;
+                    ${bgStyle}
+                    color: ${theme.text};
+                    padding: ${theme.padding};
+                    font-family: 'Noto Serif SC', serif;
+                    position: relative;
+                    overflow: hidden;
+                ">
+                    <!-- Decorative corner -->
+                    <div style="
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 120px;
+                        height: 120px;
+                        background: linear-gradient(135deg, ${theme.accent}22 0%, transparent 60%);
+                        pointer-events: none;
+                    "></div>
+                    
+                    ${title ? `
+                        <h1 style="
+                            font-size: ${fontSize * 1.8}px;
+                            font-weight: 700;
+                            margin-bottom: 0.5em;
+                            color: ${theme.accent};
+                            line-height: 1.3;
+                        ">${escapeHtml(title)}</h1>
+                    ` : ''}
+                    
+                    ${author ? `
+                        <div style="
+                            font-size: ${fontSize * 0.9}px;
+                            color: ${theme.secondary};
+                            margin-bottom: 2em;
+                            padding-bottom: 1.5em;
+                            border-bottom: 1px solid ${theme.secondary}33;
+                        ">${escapeHtml(author)}</div>
+                    ` : ''}
+                    
+                    <div style="
+                        font-size: ${fontSize}px;
+                        color: ${theme.text};
+                    ">
+                        ${paragraphs}
+                    </div>
+                    
+                    <!-- Footer watermark -->
+                    <div style="
+                        margin-top: 3em;
+                        padding-top: 1.5em;
+                        border-top: 1px solid ${theme.secondary}22;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        font-size: ${fontSize * 0.75}px;
+                        color: ${theme.secondary};
+                    ">
+                        <span>TextCard</span>
+                        <span>${new Date().toLocaleDateString('zh-CN')}</span>
+                    </div>
+                </div>
+            `;
+            
+            previewContainer.innerHTML = html;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Update character count
+        function updateCharCount() {
+            const count = textInput.value.length;
+            charCount.textContent = `${count} 字`;
+        }
+
+        // Theme selection
+        themeSelector.addEventListener('click', (e) => {
+            const btn = e.target.closest('.theme-btn');
+            if (!btn) return;
+            
+            document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentTheme = btn.dataset.theme;
+            renderPreview();
+        });
+
+        // Font size slider
+        fontSizeSlider.addEventListener('input', (e) => {
+            fontSize = parseInt(e.target.value);
+            fontSizeValue.textContent = `${fontSize}px`;
+            renderPreview();
+        });
+
+        // Text input events
+        textInput.addEventListener('input', () => {
+            updateCharCount();
+            renderPreview();
+        });
+        titleInput.addEventListener('input', renderPreview);
+        authorInput.addEventListener('input', renderPreview);
+
+        // Generate image
+        generateBtn.addEventListener('click', async () => {
+            const card = document.getElementById('captureCard');
+            if (!card) return;
+            
+            generateBtn.disabled = true;
+            generateBtn.innerHTML = `
+                <svg class="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                生成中...
+            `;
+            
+            try {
+                const canvas = await html2canvas(card, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: null,
+                    logging: false
+                });
+                
+                const link = document.createElement('a');
+                link.download = `textcard-${Date.now()}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                generateBtn.innerHTML = `
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    已保存！
+                `;
+                
+                setTimeout(() => {
+                    generateBtn.innerHTML = `
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        生成长图
+                    `;
+                    generateBtn.disabled = false;
+                }, 2000);
+            } catch (error) {
+                console.error('生成失败:', error);
+                generateBtn.innerHTML = `生成失败，请重试`;
+                generateBtn.disabled = false;
+            }
+        });
+
+        // Initial render
+        renderPreview();
+        updateCharCount();
+    </script>
+</body>
+</html>
